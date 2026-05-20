@@ -6,7 +6,7 @@ const io = require('socket.io')(http, { cors: { origin: "*" } });
 app.use(express.static(__dirname));
 const rooms = {};
 
-// 檢查遊戲是否結束
+// 檢查勝負
 function checkWin(roomCode) {
     const room = rooms[roomCode];
     if (!room) return null;
@@ -28,13 +28,14 @@ io.on('connection', (socket) => {
             host: socket.id, 
             players: [], 
             witchPotions: { save: true, poison: true }, 
-            logs: [] 
+            logs: [],
+            guardedPlayer: null 
         };
         socket.join(roomCode);
         socket.emit('roomCreated', roomCode);
     });
 
-    // 加入房間與法官權限判定
+    // 加入房間 (修復法官通訊 ID 更新)
     socket.on('joinRoom', (data) => {
         const { roomCode, playerName } = data;
         const room = rooms[roomCode];
@@ -46,14 +47,11 @@ io.on('connection', (socket) => {
             if (existingPlayer) { 
                 existingPlayer.id = socket.id; 
                 existingPlayer.isHost = isActuallyHost; 
+                // 確保法官重連後，能收到最新的廣播
+                if (isActuallyHost) room.host = socket.id;
             } else { 
-                room.players.push({ 
-                    id: socket.id, 
-                    name: playerName, 
-                    role: '等待中', 
-                    alive: true, 
-                    isHost: isActuallyHost 
-                }); 
+                room.players.push({ id: socket.id, name: playerName, role: '等待中', alive: true, isHost: isActuallyHost }); 
+                if (isActuallyHost) room.host = socket.id;
             }
             
             socket.join(roomCode);
@@ -62,12 +60,13 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 開始遊戲與身分發放
+    // 開始遊戲
     socket.on('startGame', (roomCode) => {
         const room = rooms[roomCode];
         if (room) {
             room.witchPotions = { save: true, poison: true }; 
             room.logs = ["🏮 遊戲開始"]; 
+            room.guardedPlayer = null; 
             
             let players = room.players;
             let num = players.length;
@@ -88,59 +87,54 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 切換日夜階段
+    // 切換階段
     socket.on('nextPhase', (data) => {
         const room = rooms[data.roomCode];
         if (room) {
+            if (data.phase === 'night') room.guardedPlayer = null; // 每晚重置系統守衛紀錄
             const aliveNames = room.players.filter(p => p.alive).map(p => p.name);
-            io.to(data.roomCode).emit('phaseChanged', { 
-                phase: data.phase, 
-                alivePlayers: aliveNames, 
-                potions: room.witchPotions 
-            });
+            io.to(data.roomCode).emit('phaseChanged', { phase: data.phase, alivePlayers: aliveNames, potions: room.witchPotions });
         }
     });
 
-    // 狼人暗殺
+    // 狼人行動
     socket.on('wolfVote', (data) => {
         const room = rooms[data.roomCode];
         if (room) {
             const msg = `🔪 狼人暗殺了：${data.target}`;
             room.logs.push(msg);
-            io.to(room.host).emit('adminLog', msg);
+            io.to(room.host).emit('adminLog', msg); 
             io.to(data.roomCode).emit('updateWitchInfo', { target: data.target, potions: room.witchPotions });
         }
     });
 
-    // 預言家查驗 (完全保密，不寫入法官紀錄)
+    // 預言家行動 (完全保密)
     socket.on('checkRole', (data) => {
         const room = rooms[data.roomCode];
         if (room) {
             const targetPlayer = room.players.find(p => p.name === data.targetName);
             if (targetPlayer) {
                 const result = (targetPlayer.role === '狼人') ? '【壞人】' : '【好人】';
-                // 只單獨把結果發給預言家本人
                 socket.emit('checkResult', { name: data.targetName, result: result });
-                // 這裡已經移除了 room.logs.push 和 emit('adminLog')
             }
         }
     });
 
-    // 特殊身分行動 (女巫、守衛)
+    // 女巫與守衛行動
     socket.on('specialAction', (data) => {
         const room = rooms[data.roomCode];
         if (!room) return;
         
         let msg = "";
-        // 只有女巫的行動會紀錄給法官看
         if (data.type === 'saved') { 
             room.witchPotions.save = false; 
             msg = "💊 女巫使用解藥救人"; 
         } else if (data.type === 'poisoned') { 
             room.witchPotions.poison = false; 
             msg = `🧪 女巫毒殺了：${data.target}`; 
-        } 
-        // 守衛的行動 (data.type === 'guarded') 不設定 msg，因此不會通知法官
+        } else if (data.type === 'guarded') { 
+            room.guardedPlayer = data.target; // 系統暗中記住，不發送紀錄給法官
+        }
         
         if (msg) {
             room.logs.push(msg);
@@ -149,10 +143,17 @@ io.on('connection', (socket) => {
         io.to(data.roomCode).emit('syncPotions', room.witchPotions);
     });
 
-    // 法官宣告死亡
+    // 法官宣告死亡 (加入守衛雙擊強制處決邏輯)
     socket.on('killPlayer', (data) => {
         const room = rooms[data.roomCode];
         if (room) {
+            // 如果法官點了被保護的人，系統擋下並解除保護狀態，讓下一次點擊能生效
+            if (room.guardedPlayer === data.targetName) {
+                socket.emit('gameMsg', `🛡️ 系統攔截：【${data.targetName}】昨晚受到守衛保護，已抵銷本次死亡！\n\n(若為白天投票處決，請再點擊一次即可強制執行)`);
+                room.guardedPlayer = null; 
+                return;
+            }
+
             const targetPlayer = room.players.find(p => p.name === data.targetName);
             if (targetPlayer) {
                 targetPlayer.alive = false;
