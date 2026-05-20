@@ -27,7 +27,7 @@ io.on('connection', (socket) => {
             host: socket.id, 
             players: [], 
             witchPotions: { save: true, poison: true },
-            logs: [] // 儲存本局所有行動紀錄
+            logs: [] 
         };
         socket.join(roomCode);
         socket.emit('roomCreated', roomCode);
@@ -50,7 +50,7 @@ io.on('connection', (socket) => {
                 });
             }
             socket.join(roomCode);
-            // 關鍵：將權限與歷史紀錄一併發送給重連的法官
+            // 關鍵：將權限與歷史紀錄 (historyLogs) 發送給重連的法官
             socket.emit('hostCheck', { isHost: isActuallyHost, historyLogs: room.logs });
             io.to(roomCode).emit('roomUpdated', room.players);
         }
@@ -60,7 +60,7 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         if (room) {
             room.witchPotions = { save: true, poison: true };
-            room.logs = ["🏮 遊戲開始"]; // 重置紀錄
+            room.logs = ["🏮 遊戲開始"]; 
             let players = room.players;
             let num = players.length;
             let roles = (num <= 5) ? ['狼人', '預言家', '女巫', '平民', '平民'] :
@@ -68,8 +68,7 @@ io.on('connection', (socket) => {
                         ['狼人', '狼人', '狼人', '預言家', '女巫', '獵人', '守衛', '平民', '平民', '平民'];
             roles = roles.slice(0, num).sort(() => Math.random() - 0.5);
             players.forEach((p, i) => {
-                p.role = roles[i];
-                p.alive = true;
+                p.role = roles[i]; p.alive = true;
                 io.to(p.id).emit('assignRole', { role: p.role });
             });
             io.to(roomCode).emit('roomUpdated', players);
@@ -82,9 +81,7 @@ io.on('connection', (socket) => {
         if (room) {
             const aliveNames = room.players.filter(p => p.alive).map(p => p.name);
             io.to(data.roomCode).emit('phaseChanged', { 
-                phase: data.phase, 
-                alivePlayers: aliveNames, 
-                potions: room.witchPotions 
+                phase: data.phase, alivePlayers: aliveNames, potions: room.witchPotions 
             });
         }
     });
@@ -93,7 +90,7 @@ io.on('connection', (socket) => {
         const room = rooms[data.roomCode];
         if (room) {
             const msg = `🔪 狼人暗殺：${data.target}`;
-            room.logs.push(msg); // 存入伺服器紀錄
+            room.logs.push(msg);
             io.to(room.host).emit('adminLog', msg);
             io.to(data.roomCode).emit('updateWitchInfo', { target: data.target, potions: room.witchPotions });
         }
@@ -104,8 +101,9 @@ io.on('connection', (socket) => {
         if (room) {
             const target = room.players.find(p => p.name === data.targetName);
             if (target) {
-                socket.emit('checkResult', { name: data.targetName, result: target.role === '狼人' ? '【壞人】' : '【好人】' });
-                const msg = `🔮 預言家查驗：${data.targetName}`;
+                const res = target.role === '狼人' ? '【壞人】' : '【好人】';
+                socket.emit('checkResult', { name: data.targetName, result: res });
+                const msg = `🔮 預言家查驗：${data.targetName} -> ${res}`;
                 room.logs.push(msg);
                 io.to(room.host).emit('adminLog', msg);
             }
@@ -121,7 +119,7 @@ io.on('connection', (socket) => {
         if (data.type === 'guarded') { msg = `🛡️ 守衛守護：${data.target}`; }
         
         if (msg) {
-            room.logs.push(msg); // 存入伺服器紀錄
+            room.logs.push(msg);
             io.to(room.host).emit('adminLog', msg);
         }
         io.to(data.roomCode).emit('syncPotions', room.witchPotions);
@@ -136,7 +134,6 @@ io.on('connection', (socket) => {
             room.logs.push(msg);
             io.to(p.id).emit('youAreDead'); 
             io.to(data.roomCode).emit('roomUpdated', room.players); 
-            
             const winMsg = checkWin(data.roomCode);
             if (winMsg) {
                 room.logs.push(`🏁 ${winMsg}`);
