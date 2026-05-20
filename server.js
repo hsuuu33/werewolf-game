@@ -41,7 +41,6 @@ io.on('connection', (socket) => {
         
         if (room) {
             const existingPlayer = room.players.find(p => p.name === playerName);
-            // 確認是否為原始建立者或之前紀錄的法官
             const isActuallyHost = (socket.id === room.host || (existingPlayer && existingPlayer.isHost));
             
             if (existingPlayer) { 
@@ -58,7 +57,6 @@ io.on('connection', (socket) => {
             }
             
             socket.join(roomCode);
-            // 補發權限與歷史紀錄給法官
             socket.emit('hostCheck', { isHost: isActuallyHost, historyLogs: room.logs });
             io.to(roomCode).emit('roomUpdated', room.players);
         }
@@ -69,7 +67,7 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         if (room) {
             room.witchPotions = { save: true, poison: true }; 
-            room.logs = ["🏮 遊戲開始"]; // 清空並重置紀錄
+            room.logs = ["🏮 遊戲開始"]; 
             
             let players = room.players;
             let num = players.length;
@@ -114,17 +112,16 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 預言家查驗
+    // 預言家查驗 (完全保密，不寫入法官紀錄)
     socket.on('checkRole', (data) => {
         const room = rooms[data.roomCode];
         if (room) {
             const targetPlayer = room.players.find(p => p.name === data.targetName);
             if (targetPlayer) {
                 const result = (targetPlayer.role === '狼人') ? '【壞人】' : '【好人】';
+                // 只單獨把結果發給預言家本人
                 socket.emit('checkResult', { name: data.targetName, result: result });
-                const msg = `🔮 預言家查驗：${data.targetName} -> ${result}`;
-                room.logs.push(msg);
-                io.to(room.host).emit('adminLog', msg);
+                // 這裡已經移除了 room.logs.push 和 emit('adminLog')
             }
         }
     });
@@ -135,15 +132,15 @@ io.on('connection', (socket) => {
         if (!room) return;
         
         let msg = "";
+        // 只有女巫的行動會紀錄給法官看
         if (data.type === 'saved') { 
             room.witchPotions.save = false; 
             msg = "💊 女巫使用解藥救人"; 
         } else if (data.type === 'poisoned') { 
             room.witchPotions.poison = false; 
             msg = `🧪 女巫毒殺了：${data.target}`; 
-        } else if (data.type === 'guarded') { 
-            msg = `🛡️ 守衛守護了：${data.target}`; 
-        }
+        } 
+        // 守衛的行動 (data.type === 'guarded') 不設定 msg，因此不會通知法官
         
         if (msg) {
             room.logs.push(msg);
@@ -175,6 +172,4 @@ io.on('connection', (socket) => {
     });
 });
 
-http.listen(3000, '0.0.0.0', () => {
-    console.log('伺服器已成功啟動！');
-});
+http.listen(3000, '0.0.0.0');
