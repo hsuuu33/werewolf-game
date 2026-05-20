@@ -14,6 +14,19 @@
         #hostControl { display: none; border: 2px solid #03dac6; background: #1e1e1e; padding: 15px; margin-top: 15px; border-radius: 10px; }
         #adminLog { text-align: left; color: #ffb74d; font-size: 14px; margin-top: 15px; border-top: 1px solid #555; padding-top: 10px; max-height: 200px; overflow-y: auto; line-height: 1.5; }
         .status-dead { opacity: 0.4; pointer-events: none; }
+        
+        /* 絕對置頂的彈出式技能面板 */
+        #actionUI { 
+            display: none; 
+            position: fixed; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            z-index: 3000; 
+            width: 80%; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.9);
+            border: 2px solid #cf6679;
+        }
     </style>
 </head>
 <body>
@@ -31,7 +44,6 @@
 </div>
 
 <div id="gameArea" style="display:none;">
-    
     <div class="box">
         <div id="roomTitle" style="color:#f1c40f; font-size:1.5em; font-weight:bold;">房號: --</div>
         <div id="playerListText" style="margin-top:10px; line-height:1.6;"></div>
@@ -43,14 +55,9 @@
         <p id="aliveStatus" style="color:#4caf50; font-weight:bold; margin-top:15px;">狀態：存活</p>
     </div>
 
-    <div id="actionUI" style="display:none;" class="box">
-        <h3 id="actionMsg" style="color:#cf6679;">請執行您的技能</h3>
-        <div id="actionBtns"></div>
-    </div>
-
     <div id="hostControl">
         <h3 style="color:#03dac6; margin-top:0;">法官專用控制台</h3>
-        <button onclick="if(confirm('確定要重新分配身分並開始新局嗎？')) socket.emit('startGame', currentRoom)" style="background:#4caf50; color:white;">重新發牌 / 開始新局</button>
+        <button onclick="if(confirm('確定要重新發牌並開始新局嗎？')) socket.emit('startGame', currentRoom)" style="background:#4caf50; color:white;">重新發牌 / 開始新局</button>
         <button onclick="socket.emit('nextPhase',{roomCode:currentRoom, phase:'night'})" style="background:#3700b3; color:white;">🌙 宣布天黑</button>
         <button onclick="socket.emit('nextPhase',{roomCode:currentRoom, phase:'day'})" style="background:#f1c40f; color:black;">☀️ 宣布天亮</button>
         <div id="adminLog">紀錄：</div>
@@ -63,16 +70,17 @@
     <p style="color:#aaa;">正在等待神職人員行動...</p>
 </div>
 
+<div id="actionUI" class="box">
+    <h3 id="actionMsg" style="color:#cf6679;">請執行您的技能</h3>
+    <div id="actionBtns"></div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 
 <script>
     const socket = io();
-    let myName = "";
-    let myRole = "";
-    let currentRoom = "";
-    let isHost = false;
-    let alive = true;
-    let lastGuardedByMe = "";
+    let myName = "", myRole = "", currentRoom = "";
+    let isHost = false, alive = true, lastGuardedByMe = "";
     let alivePlayers = [];
 
     function createRoomBtn() {
@@ -139,11 +147,15 @@
     socket.on('assignRole', data => { 
         myRole = data.role; 
         alive = true; 
-        lastGuardedByMe = ""; // 新的一局，重置守衛紀錄
+        lastGuardedByMe = ""; 
         document.getElementById('roleDisplay').innerText = myRole; 
         document.getElementById('myRoleBox').classList.remove('status-dead');
         document.getElementById('aliveStatus').innerText = "狀態：存活";
         document.getElementById('aliveStatus').style.color = "#4caf50";
+        // 清空前一局日誌，維持介面乾淨
+        if(isHost) {
+            document.getElementById('adminLog').innerHTML = "紀錄：<br><div>• 🏮 遊戲開始</div>";
+        }
     });
 
     socket.on('youAreDead', () => { 
@@ -153,7 +165,6 @@
         document.getElementById('myRoleBox').classList.add('status-dead');
     });
 
-    // 階段切換與守衛按鈕修正
     socket.on('phaseChanged', data => {
         const overlay = document.getElementById('nightOverlay');
         const actionUI = document.getElementById('actionUI');
@@ -170,12 +181,8 @@
                 actionUI.style.display = "block"; 
                 document.getElementById('actionMsg').innerText = `🔮 請執行【${myRole}】的行動`;
                 
-                // 這裡改為遍歷「所有」存活玩家，讓守衛有機會選自己
                 alivePlayers.forEach(p => {
-                    // 狼人和預言家通常不能對自己使用技能，過濾掉自己
                     if ((myRole === '狼人' || myRole === '預言家') && p === myName) return;
-                    
-                    // 守衛不可連守同一個人（包含連續兩晚守自己也不行）
                     if (myRole === '守衛' && p === lastGuardedByMe) return; 
                     
                     const btn = document.createElement('button'); 
@@ -187,14 +194,12 @@
                         if (myRole === '預言家') {
                             socket.emit('checkRole', { roomCode: currentRoom, targetName: p });
                         } else { 
-                            if (myRole === '守衛') lastGuardedByMe = p; // 記住今晚守護的人
+                            if (myRole === '守衛') lastGuardedByMe = p; 
                             const actionType = (myRole === '守衛') ? 'guarded' : 'none';
                             socket.emit((myRole === '狼人' ? 'wolfVote' : 'specialAction'), { roomCode: currentRoom, target: p, type: actionType }); 
                         }
-                        
                         actionUI.style.display = "none"; 
-                        if (!isHost) overlay.style.display = "none"; 
-                        alert("✅ 行動已確認！");
+                        alert("✅ 行動已確認！請等待天亮...");
                     };
                     actionBtns.appendChild(btn);
                 });
@@ -223,7 +228,7 @@
                 if (d.potions.save) { 
                     socket.emit('specialAction', { roomCode: currentRoom, type: 'saved' }); 
                     actionUI.style.display = "none"; 
-                    if(!isHost) overlay.style.display = "none"; 
+                    alert("✅ 拯救成功！請等待天亮...");
                 }
             };
             
@@ -240,7 +245,7 @@
                         btn.onclick = () => { 
                             socket.emit('specialAction', { roomCode: currentRoom, type: 'poisoned', target: p }); 
                             actionUI.style.display = "none"; 
-                            if(!isHost) overlay.style.display = "none"; 
+                            alert("✅ 毒殺確認！請等待天亮...");
                         }; 
                         actionBtns.appendChild(btn); 
                     });
@@ -252,7 +257,7 @@
             btnPass.style.background = "#777";
             btnPass.onclick = () => { 
                 actionUI.style.display = "none"; 
-                if(!isHost) overlay.style.display = "none"; 
+                alert("✅ 已選擇不行動！請等待天亮...");
             };
             
             actionBtns.appendChild(btnSave); 
