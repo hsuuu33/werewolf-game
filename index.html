@@ -53,9 +53,7 @@
         <button onclick="if(confirm('確定要重新分配身分並開始新局嗎？')) socket.emit('startGame', currentRoom)" style="background:#4caf50; color:white;">重新發牌 / 開始新局</button>
         <button onclick="socket.emit('nextPhase',{roomCode:currentRoom, phase:'night'})" style="background:#3700b3; color:white;">🌙 宣布天黑</button>
         <button onclick="socket.emit('nextPhase',{roomCode:currentRoom, phase:'day'})" style="background:#f1c40f; color:black;">☀️ 宣布天亮</button>
-        
         <div id="adminLog">紀錄：</div>
-        
         <div id="killList" style="margin-top:15px;"></div>
     </div>
 </div>
@@ -66,6 +64,7 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+
 <script>
     const socket = io();
     let myName = "";
@@ -76,14 +75,12 @@
     let lastGuardedByMe = "";
     let alivePlayers = [];
 
-    // 建立房間按鈕邏輯
     function createRoomBtn() {
         myName = document.getElementById('hName').value.trim();
         if (!myName) return alert('請先輸入暱稱！');
         socket.emit('createRoom');
     }
 
-    // 加入房間按鈕邏輯
     function joinRoomBtn() {
         myName = document.getElementById('hName').value.trim();
         currentRoom = document.getElementById('rCode').value.trim();
@@ -91,7 +88,6 @@
         socket.emit('joinRoom', { roomCode: currentRoom, playerName: myName });
     }
 
-    // 【修復核心】：建立房間後自動加入並切換畫面
     socket.on('roomCreated', code => { 
         currentRoom = code; 
         document.getElementById('roomTitle').innerText = "房號: " + code; 
@@ -99,7 +95,6 @@
         socket.emit('joinRoom', { roomCode: code, playerName: myName });
     });
 
-    // 接收法官權限與歷史紀錄
     socket.on('hostCheck', data => {
         if (data.isHost) {
             isHost = true; 
@@ -115,11 +110,9 @@
         }
     });
 
-    // 接收房間玩家更新
     socket.on('roomUpdated', players => {
         document.getElementById('setupArea').style.display = "none";
         document.getElementById('gameArea').style.display = "block";
-        
         document.getElementById('playerListText').innerText = players.map(p => (p.alive ? "👤 " : "💀 ") + p.name).join(', ');
         
         if (isHost) {
@@ -143,18 +136,16 @@
         }
     });
 
-    // 接收身分分配
     socket.on('assignRole', data => { 
         myRole = data.role; 
         alive = true; 
-        lastGuardedByMe = ""; 
+        lastGuardedByMe = ""; // 新的一局，重置守衛紀錄
         document.getElementById('roleDisplay').innerText = myRole; 
         document.getElementById('myRoleBox').classList.remove('status-dead');
         document.getElementById('aliveStatus').innerText = "狀態：存活";
         document.getElementById('aliveStatus').style.color = "#4caf50";
     });
 
-    // 接收死亡宣告
     socket.on('youAreDead', () => { 
         alive = false; 
         document.getElementById('aliveStatus').innerText = "💀 您已出局"; 
@@ -162,7 +153,7 @@
         document.getElementById('myRoleBox').classList.add('status-dead');
     });
 
-    // 接收日夜階段切換
+    // 階段切換與守衛按鈕修正
     socket.on('phaseChanged', data => {
         const overlay = document.getElementById('nightOverlay');
         const actionUI = document.getElementById('actionUI');
@@ -170,7 +161,7 @@
         
         actionBtns.innerHTML = ""; 
         actionUI.style.display = "none";
-        alivePlayers = data.alivePlayers; // 更新存活名單
+        alivePlayers = data.alivePlayers; 
         
         if (data.phase === 'night') {
             if (!isHost) overlay.style.display = "flex"; 
@@ -179,7 +170,12 @@
                 actionUI.style.display = "block"; 
                 document.getElementById('actionMsg').innerText = `🔮 請執行【${myRole}】的行動`;
                 
-                alivePlayers.filter(p => p !== myName).forEach(p => {
+                // 這裡改為遍歷「所有」存活玩家，讓守衛有機會選自己
+                alivePlayers.forEach(p => {
+                    // 狼人和預言家通常不能對自己使用技能，過濾掉自己
+                    if ((myRole === '狼人' || myRole === '預言家') && p === myName) return;
+                    
+                    // 守衛不可連守同一個人（包含連續兩晚守自己也不行）
                     if (myRole === '守衛' && p === lastGuardedByMe) return; 
                     
                     const btn = document.createElement('button'); 
@@ -191,7 +187,7 @@
                         if (myRole === '預言家') {
                             socket.emit('checkRole', { roomCode: currentRoom, targetName: p });
                         } else { 
-                            if (myRole === '守衛') lastGuardedByMe = p; 
+                            if (myRole === '守衛') lastGuardedByMe = p; // 記住今晚守護的人
                             const actionType = (myRole === '守衛') ? 'guarded' : 'none';
                             socket.emit((myRole === '狼人' ? 'wolfVote' : 'specialAction'), { roomCode: currentRoom, target: p, type: actionType }); 
                         }
@@ -209,7 +205,6 @@
         }
     });
 
-    // 女巫專屬行動介面
     socket.on('updateWitchInfo', d => {
         if (myRole === '女巫' && alive) {
             const overlay = document.getElementById('nightOverlay');
@@ -277,7 +272,6 @@
     socket.on('gameMsg', msg => alert(msg));
     socket.on('gameOver', msg => alert(msg));
     
-    // 長按顯示身分邏輯
     const showBtn = document.getElementById('showBtn');
     const roleDisplay = document.getElementById('roleDisplay');
     
