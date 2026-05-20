@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>狼人殺-終極旗艦版</title>
+    <title>狼人殺-旗艦版</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #121212; color: #eee; margin: 0; padding: 10px; }
         .box { border: 1px solid #333; padding: 15px; margin-bottom: 10px; border-radius: 15px; background: #1e1e1e; }
@@ -11,7 +11,6 @@
         .btn-disabled { background: #444 !important; color: #888 !important; cursor: not-allowed; opacity: 0.5; }
         #nightOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 2000; flex-direction: column; justify-content: center; align-items: center; }
         #hostControl { display: none; border: 2px solid #03dac6; z-index: 3000; position: relative; background: #1e1e1e; padding: 10px; }
-        #roomTitle { color: #f1c40f; font-size: 1.5em; font-weight: bold; }
         .status-dead { opacity: 0.4; pointer-events: none; }
         .dead-text { color: #cf6679; font-weight: bold; }
     </style>
@@ -20,20 +19,18 @@
 
 <div id="setupArea">
     <div class="box">
-        <input type="text" id="hName" placeholder="法官暱稱" style="width:80%; padding:10px; border-radius:5px; border:none;">
-        <button onclick="myName=document.getElementById('hName').value; socket.emit('createRoom');" style="background:#cf6679; color:white; margin-top:10px;">建立房間</button>
-    </div>
-    <div class="box">
-        <input type="text" id="pName" placeholder="玩家暱稱" style="width:80%; padding:10px; border-radius:5px; border:none;"><br>
-        <input type="text" id="rCode" placeholder="房號" style="width:80%; padding:10px; margin-top:5px; border-radius:5px; border:none;">
-        <button onclick="myName=document.getElementById('pName').value; currentRoom=document.getElementById('rCode').value; socket.emit('joinRoom',{roomCode:currentRoom,playerName:myName});" style="background:#03dac6; color:black; margin-top:10px;">加入房間</button>
+        <input type="text" id="hName" placeholder="暱稱" style="width:80%; padding:10px; border-radius:5px;"><br>
+        <button onclick="myName=document.getElementById('hName').value; socket.emit('createRoom');" style="background:#cf6679;">建立房間</button>
+        <p>或</p>
+        <input type="text" id="rCode" placeholder="房號" style="width:80%; padding:10px; border-radius:5px;"><br>
+        <button onclick="myName=document.getElementById('hName').value; currentRoom=document.getElementById('rCode').value; socket.emit('joinRoom',{roomCode:currentRoom,playerName:myName});" style="background:#03dac6;">加入房間</button>
     </div>
 </div>
 
 <div id="gameArea" style="display:none;">
     <div class="box">
-        <div id="roomTitle">房號: --</div>
-        <div id="playerListText" style="color:#f1c40f; margin-top:5px;"></div>
+        <div id="roomTitle" style="color:#f1c40f; font-size:1.5em;">房號: --</div>
+        <div id="playerListText" style="color:#f1c40f;"></div>
     </div>
     <div class="box" id="myRoleBox">
         <div id="showBtn" style="background:#333; padding:20px; border-radius:10px; user-select:none;">長按查看身分</div>
@@ -41,13 +38,10 @@
         <p id="aliveStatus" style="color:#4caf50; margin-top:10px;">狀態：存活</p>
     </div>
     <div id="hostControl">
-        <p style="color:#03dac6; margin-bottom:5px;">法官控制台</p>
-        <button onclick="if(confirm('重啟遊戲？')) socket.emit('startGame', currentRoom)" style="background:#4caf50; color:white;">開始/重新開局</button>
-        <div style="display:flex; justify-content:center;">
-            <button style="width:45%; background:#333; color:white;" onclick="changePhase('night')">🌙 天黑</button>
-            <button style="width:45%; background:#333; color:white;" onclick="changePhase('day')">☀️ 天亮</button>
-        </div>
-        <div id="adminLog" style="text-align:left; color:#ffb74d; font-size:12px; margin-top:10px; border-top:1px solid #444; padding-top:5px;">紀錄：</div>
+        <button onclick="if(confirm('重啟？')) socket.emit('startGame', currentRoom)" style="background:#4caf50;">開始新局</button>
+        <button onclick="socket.emit('nextPhase',{roomCode:currentRoom, phase:'night'})">🌙 天黑</button>
+        <button onclick="socket.emit('nextPhase',{roomCode:currentRoom, phase:'day'})">☀️ 天亮</button>
+        <div id="adminLog" style="text-align:left; color:#ffb74d; font-size:12px; margin-top:10px; border-top:1px solid #444;">紀錄：</div>
         <div id="killList"></div>
     </div>
 </div>
@@ -55,7 +49,7 @@
 <div id="nightOverlay">
     <h2 id="nightTitle">🌙 天黑請閉眼</h2>
     <div id="actionUI" style="display:none; width:100%;">
-        <h3 id="actionMsg" style="color:#cf6679;">請行動</h3>
+        <h3 id="actionMsg" style="color:#cf6679;"></h3>
         <div id="actionBtns"></div>
     </div>
 </div>
@@ -67,29 +61,31 @@
     let witchPotions={save:true, poison:true}, alivePlayers=[], lastGuardedByMe="";
 
     socket.on('roomCreated', code => {
-        currentRoom = code; isHost = true;
+        currentRoom = code;
         document.getElementById('roomTitle').innerText = "房號: " + code;
-        document.getElementById('setupArea').style.display = "none";
-        document.getElementById('gameArea').style.display = "block";
-        document.getElementById('hostControl').style.display = "block";
-        socket.emit('joinRoom', { roomCode: code, playerName: myName });
     });
-// 當伺服器確認你是法官時，強制打開面板
+
     socket.on('hostCheck', data => {
         if (data.isHost) {
             isHost = true;
             document.getElementById('hostControl').style.display = "block";
+            if (data.historyLogs) {
+                const logBox = document.getElementById('adminLog');
+                logBox.innerHTML = "紀錄：";
+                data.historyLogs.forEach(msg => logBox.innerHTML += `<div>• ${msg}</div>`);
+            }
         }
     });
+
     socket.on('roomUpdated', players => {
         document.getElementById('setupArea').style.display = "none";
         document.getElementById('gameArea').style.display = "block";
         document.getElementById('playerListText').innerText = players.map(p => (p.alive?"👤 ":"💀 ")+p.name).join(', ');
         if(isHost){
-            const kl = document.getElementById('killList'); kl.innerHTML = "<p style='margin:5px'>宣告死亡:</p>";
+            const kl = document.getElementById('killList'); kl.innerHTML = "宣告死亡:";
             players.forEach(p => { if(p.alive){
-                const b = document.createElement('button'); b.innerText = p.name; b.style.width="30%"; b.style.display="inline-block";
-                b.onclick = () => { if(confirm('確定宣告 '+p.name+' 死亡？')) socket.emit('killPlayer', {roomCode:currentRoom, targetName:p.name}); };
+                const b = document.createElement('button'); b.innerText = p.name; b.style.width="30%";
+                b.onclick = () => { if(confirm('宣告 '+p.name+' 死亡？')) socket.emit('killPlayer', {roomCode:currentRoom, targetName:p.name}); };
                 kl.appendChild(b);
             }});
         }
@@ -99,30 +95,15 @@
         myRole=data.role; alive=true; lastGuardedByMe="";
         document.getElementById('roleDisplay').innerText=myRole;
         document.getElementById('aliveStatus').innerText="狀態：存活";
-        document.getElementById('aliveStatus').className="";
         document.getElementById('myRoleBox').classList.remove('status-dead');
     });
 
     socket.on('youAreDead', () => { 
         alive = false; 
-        document.getElementById('aliveStatus').innerText="狀態：已出局";
-        document.getElementById('aliveStatus').className="dead-text";
+        document.getElementById('aliveStatus').innerText="已出局";
         document.getElementById('myRoleBox').classList.add('status-dead');
-        alert("👻 你已經死亡，天黑請勿睜眼"); 
+        alert("💀 你已死亡");
     });
-
-    socket.on('syncPotions', p => { witchPotions = p; });
-    socket.on('gameMsg', m => alert(m));
-    socket.on('gameOver', m => alert("🏁 遊戲結束！\n" + m));
-
-    const sb=document.getElementById('showBtn'), rd=document.getElementById('roleDisplay');
-    sb.onmousedown=sb.ontouchstart=(e)=>{ e.preventDefault(); rd.style.display="block"; };
-    sb.onmouseup=sb.ontouchend=()=>{ rd.style.display="none"; };
-
-    function changePhase(p){
-        socket.emit('nextPhase',{roomCode:currentRoom, phase:p});
-        if(p==='night') document.getElementById('adminLog').innerHTML = "紀錄：";
-    }
 
     socket.on('phaseChanged', data => {
         const ov=document.getElementById('nightOverlay'), ui=document.getElementById('actionUI'), btns=document.getElementById('actionBtns');
@@ -132,15 +113,12 @@
 
         if(data.phase==='night'){
             if(!isHost) ov.style.display="flex"; 
-            
-            // 死者攔截：alive 為 false 則完全不顯示行動 UI
             if(alive && (myRole==='狼人'||myRole==='預言家'||myRole==='守衛')){
                 ui.style.display="block";
                 document.getElementById('actionMsg').innerText = "【"+myRole+"】請行動";
                 data.alivePlayers.filter(p=>p!==myName).forEach(p=>{
-                    if(myRole==='守衛' && p===lastGuardedByMe) return; // 守衛連守過濾
-                    
-                    const b = document.createElement('button'); b.innerText=p; b.style.background="#cf6679"; b.style.color="white";
+                    if(myRole==='守衛' && p===lastGuardedByMe) return; 
+                    const b = document.createElement('button'); b.innerText=p; b.style.background="#cf6679";
                     b.onclick=()=>{
                         if(myRole==='預言家') socket.emit('checkRole',{roomCode:currentRoom, targetName:p});
                         else {
@@ -160,32 +138,34 @@
             const ov=document.getElementById('nightOverlay'), ui=document.getElementById('actionUI'), btns=document.getElementById('actionBtns');
             ov.style.display="flex"; ui.style.display="block"; btns.innerHTML="";
             document.getElementById('actionMsg').innerText = "昨晚死的是: " + (d.target || "無人");
-
-            const b1 = document.createElement('button');
-            b1.innerText = witchPotions.save ? "救人 (解藥)" : "解藥已用完";
+            
+            const b1 = document.createElement('button'); b1.innerText = witchPotions.save ? "解藥" : "無藥";
             if(!witchPotions.save) b1.className = "btn-disabled";
-            b1.onclick = () => { if(witchPotions.save){ socket.emit('specialAction',{roomCode:currentRoom, type:'saved', target:d.target}); ov.style.display="none"; }};
-
-            const b2 = document.createElement('button');
-            b2.innerText = witchPotions.poison ? "毒人 (毒藥)" : "毒藥已用完";
-            if(!witchPotions.poison) b2.className = "btn-disabled";
-            b2.onclick = () => {
-                if(witchPotions.poison){
-                    btns.innerHTML = "<p>毒殺誰？</p>";
-                    alivePlayers.forEach(p => {
-                        const b = document.createElement('button'); b.innerText=p;
-                        b.onclick=()=>{ socket.emit('specialAction',{roomCode:currentRoom, type:'poisoned', target:p}); ov.style.display="none"; };
-                        btns.appendChild(b);
-                    });
-                }
-            };
-            const b3 = document.createElement('button'); b3.innerText="不行動"; b3.style.background="#555"; b3.onclick=()=>ov.style.display="none";
+            b1.onclick = () => { if(witchPotions.save){ socket.emit('specialAction',{roomCode:currentRoom, type:'saved'}); ov.style.display="none"; }};
+            
+            const b2 = document.createElement('button'); b2.innerText = "毒藥";
+            b2.onclick = () => { if(witchPotions.poison){
+                btns.innerHTML = "<p>毒誰？</p>";
+                alivePlayers.forEach(p => {
+                    const b = document.createElement('button'); b.innerText=p;
+                    b.onclick=()=>{ socket.emit('specialAction',{roomCode:currentRoom, type:'poisoned', target:p}); ov.style.display="none"; };
+                    btns.appendChild(b);
+                });
+            }};
+            const b3 = document.createElement('button'); b3.innerText="不行動"; b3.onclick=()=>ov.style.display="none";
             btns.appendChild(b1); btns.appendChild(b2); btns.appendChild(b3);
         }
     });
 
     socket.on('checkResult', d => { alert(d.name + " 是 " + d.result); document.getElementById('nightOverlay').style.display="none"; });
     socket.on('adminLog', m => document.getElementById('adminLog').innerHTML += `<div>• ${m}</div>`);
+    socket.on('syncPotions', p => { witchPotions = p; });
+    socket.on('gameMsg', m => alert(m));
+    socket.on('gameOver', m => alert("🏁 " + m));
+    
+    const sb=document.getElementById('showBtn'), rd=document.getElementById('roleDisplay');
+    sb.onmousedown=sb.ontouchstart=(e)=>{ e.preventDefault(); rd.style.display="block"; };
+    sb.onmouseup=sb.ontouchend=()=>{ rd.style.display="none"; };
 </script>
 </body>
 </html>
