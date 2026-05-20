@@ -74,7 +74,13 @@
         document.getElementById('hostControl').style.display = "block";
         socket.emit('joinRoom', { roomCode: code, playerName: myName });
     });
-
+// 當伺服器確認你是法官時，強制打開面板
+    socket.on('hostCheck', data => {
+        if (data.isHost) {
+            isHost = true;
+            document.getElementById('hostControl').style.display = "block";
+        }
+    });
     socket.on('roomUpdated', players => {
         document.getElementById('setupArea').style.display = "none";
         document.getElementById('gameArea').style.display = "block";

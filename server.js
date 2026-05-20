@@ -34,15 +34,31 @@ io.on('connection', (socket) => {
 
     socket.on('joinRoom', (data) => {
         const { roomCode, playerName } = data;
-        if (rooms[roomCode]) {
-            const existing = rooms[roomCode].players.find(p => p.name === playerName);
-            if (existing) existing.id = socket.id;
-            else rooms[roomCode].players.push({ id: socket.id, name: playerName, role: '等待中', alive: true });
+        const room = rooms[roomCode];
+        if (room) {
+            const existing = room.players.find(p => p.name === playerName);
+            
+            // 關鍵：如果他是房主，或者之前紀錄裡他就是 Host
+            const isActuallyHost = (socket.id === room.host || (existing && existing.isHost));
+            
+            if (existing) {
+                existing.id = socket.id;
+                existing.isHost = isActuallyHost; // 確保權限續存
+            } else {
+                room.players.push({ 
+                    id: socket.id, 
+                    name: playerName, 
+                    role: '等待中', 
+                    alive: true,
+                    isHost: isActuallyHost 
+                });
+            }
             socket.join(roomCode);
-            io.to(roomCode).emit('roomUpdated', rooms[roomCode].players);
+            // 告訴這個人他目前的權限
+            socket.emit('hostCheck', { isHost: isActuallyHost });
+            io.to(roomCode).emit('roomUpdated', room.players);
         }
     });
-
     socket.on('startGame', (roomCode) => {
         const room = rooms[roomCode];
         if (room) {
