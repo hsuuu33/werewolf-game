@@ -74,6 +74,7 @@
     let isHost = false;
     let alive = true;
     let lastGuardedByMe = "";
+    let alivePlayers = [];
 
     // 建立房間按鈕邏輯
     function createRoomBtn() {
@@ -90,19 +91,21 @@
         socket.emit('joinRoom', { roomCode: currentRoom, playerName: myName });
     }
 
-    // 接收房間建立成功
+    // 【修復核心】：建立房間後自動加入並切換畫面
     socket.on('roomCreated', code => { 
         currentRoom = code; 
         document.getElementById('roomTitle').innerText = "房號: " + code; 
+        alert("🎉 房間建立成功！房號是：" + code);
+        socket.emit('joinRoom', { roomCode: code, playerName: myName });
     });
 
-    // 接收法官權限與歷史紀錄 (解決重整後紀錄消失與權限遺失問題)
+    // 接收法官權限與歷史紀錄
     socket.on('hostCheck', data => {
         if (data.isHost) {
             isHost = true; 
             document.getElementById('hostControl').style.display = "block";
             const logBox = document.getElementById('adminLog'); 
-            logBox.innerHTML = "紀錄："; // 先清空
+            logBox.innerHTML = "紀錄："; 
             if (data.historyLogs && data.historyLogs.length > 0) {
                 data.historyLogs.forEach(msg => {
                     logBox.innerHTML += `<div>• ${msg}</div>`;
@@ -144,7 +147,7 @@
     socket.on('assignRole', data => { 
         myRole = data.role; 
         alive = true; 
-        lastGuardedByMe = ""; // 新局重置守衛紀錄
+        lastGuardedByMe = ""; 
         document.getElementById('roleDisplay').innerText = myRole; 
         document.getElementById('myRoleBox').classList.remove('status-dead');
         document.getElementById('aliveStatus').innerText = "狀態：存活";
@@ -159,7 +162,7 @@
         document.getElementById('myRoleBox').classList.add('status-dead');
     });
 
-    // 接收日夜階段切換 (解決法官被黑幕擋住的問題)
+    // 接收日夜階段切換
     socket.on('phaseChanged', data => {
         const overlay = document.getElementById('nightOverlay');
         const actionUI = document.getElementById('actionUI');
@@ -167,18 +170,16 @@
         
         actionBtns.innerHTML = ""; 
         actionUI.style.display = "none";
+        alivePlayers = data.alivePlayers; // 更新存活名單
         
         if (data.phase === 'night') {
-            // 如果不是法官，就顯示黑幕；法官則保持清晰畫面
             if (!isHost) overlay.style.display = "flex"; 
             
-            // 存活且有技能的神職/狼人，顯示行動介面
             if (alive && (myRole === '狼人' || myRole === '預言家' || myRole === '守衛')) {
                 actionUI.style.display = "block"; 
                 document.getElementById('actionMsg').innerText = `🔮 請執行【${myRole}】的行動`;
                 
-                data.alivePlayers.filter(p => p !== myName).forEach(p => {
-                    // 守衛不可連守邏輯
+                alivePlayers.filter(p => p !== myName).forEach(p => {
                     if (myRole === '守衛' && p === lastGuardedByMe) return; 
                     
                     const btn = document.createElement('button'); 
@@ -197,6 +198,7 @@
                         
                         actionUI.style.display = "none"; 
                         if (!isHost) overlay.style.display = "none"; 
+                        alert("✅ 行動已確認！");
                     };
                     actionBtns.appendChild(btn);
                 });
@@ -219,7 +221,6 @@
             actionBtns.innerHTML = "";
             document.getElementById('actionMsg').innerText = "昨晚被暗殺的是: " + (d.target || "無人");
             
-            // 解藥按鈕
             const btnSave = document.createElement('button'); 
             btnSave.innerText = "💊 使用解藥"; 
             btnSave.style.background = d.potions.save ? "#4caf50" : "#444";
@@ -231,19 +232,26 @@
                 }
             };
             
-            // 毒藥按鈕
             const btnPoison = document.createElement('button'); 
             btnPoison.innerText = "🧪 使用毒藥"; 
             btnPoison.style.background = d.potions.poison ? "#cf6679" : "#444";
             btnPoison.onclick = () => { 
                 if (d.potions.poison) {
                     actionBtns.innerHTML = "<p>請問要毒殺誰？</p>"; 
-                    // 向伺服器請求最新存活名單來渲染毒藥按鈕
-                    socket.emit('nextPhase', { roomCode: currentRoom, phase: 'witchPoisonUI' }); 
+                    alivePlayers.forEach(p => {
+                        const btn = document.createElement('button'); 
+                        btn.innerText = "毒殺：" + p;
+                        btn.style.background = "#cf6679";
+                        btn.onclick = () => { 
+                            socket.emit('specialAction', { roomCode: currentRoom, type: 'poisoned', target: p }); 
+                            actionUI.style.display = "none"; 
+                            if(!isHost) overlay.style.display = "none"; 
+                        }; 
+                        actionBtns.appendChild(btn); 
+                    });
                 }
             };
             
-            // 不行動按鈕
             const btnPass = document.createElement('button'); 
             btnPass.innerText = "不行動"; 
             btnPass.style.background = "#777";
@@ -257,26 +265,7 @@
             actionBtns.appendChild(btnPass);
         }
     });
-    
-    // 女巫選擇毒藥對象的UI生成
-    socket.on('phaseChanged', data => {
-        if(data.phase === 'witchPoisonUI' && myRole === '女巫' && alive) {
-            const actionBtns = document.getElementById('actionBtns');
-            data.alivePlayers.forEach(p => {
-                const btn = document.createElement('button'); 
-                btn.innerText = "毒殺：" + p;
-                btn.style.background = "#cf6679";
-                btn.onclick = () => { 
-                    socket.emit('specialAction', { roomCode: currentRoom, type: 'poisoned', target: p }); 
-                    document.getElementById('actionUI').style.display = "none"; 
-                    if(!isHost) document.getElementById('nightOverlay').style.display = "none"; 
-                }; 
-                actionBtns.appendChild(btn); 
-            });
-        }
-    });
 
-    // 系統提示與結果接收
     socket.on('checkResult', data => alert(`【預言家查驗結果】\n${data.name} 的身分是：${data.result}`));
     
     socket.on('adminLog', msg => { 
