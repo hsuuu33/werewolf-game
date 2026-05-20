@@ -152,7 +152,6 @@
         document.getElementById('myRoleBox').classList.remove('status-dead');
         document.getElementById('aliveStatus').innerText = "狀態：存活";
         document.getElementById('aliveStatus').style.color = "#4caf50";
-        // 清空前一局日誌，維持介面乾淨
         if(isHost) {
             document.getElementById('adminLog').innerHTML = "紀錄：<br><div>• 🏮 遊戲開始</div>";
         }
@@ -163,6 +162,36 @@
         document.getElementById('aliveStatus').innerText = "💀 您已出局"; 
         document.getElementById('aliveStatus').style.color = "#cf6679";
         document.getElementById('myRoleBox').classList.add('status-dead');
+    });
+
+    socket.on('hunterAction', aliveList => {
+        const actionUI = document.getElementById('actionUI');
+        const actionBtns = document.getElementById('actionBtns');
+        
+        actionUI.style.display = "block";
+        document.getElementById('actionMsg').innerText = "🔫 獵人請開槍！選擇要帶走的玩家：";
+        actionBtns.innerHTML = "";
+        
+        aliveList.forEach(p => {
+            const btn = document.createElement('button');
+            btn.innerText = "💥 開槍帶走：" + p;
+            btn.style.background = "#cf6679";
+            btn.onclick = () => {
+                socket.emit('hunterShoot', { roomCode: currentRoom, target: p });
+                actionUI.style.display = "none";
+                alert("💥 砰！你已開槍！");
+            };
+            actionBtns.appendChild(btn);
+        });
+
+        const passBtn = document.createElement('button');
+        passBtn.innerText = "不開槍 / 被毒無法開槍";
+        passBtn.style.background = "#777";
+        passBtn.onclick = () => {
+            socket.emit('hunterShoot', { roomCode: currentRoom, target: null });
+            actionUI.style.display = "none";
+        };
+        actionBtns.appendChild(passBtn);
     });
 
     socket.on('phaseChanged', data => {
@@ -182,7 +211,8 @@
                 document.getElementById('actionMsg').innerText = `🔮 請執行【${myRole}】的行動`;
                 
                 alivePlayers.forEach(p => {
-                    if ((myRole === '狼人' || myRole === '預言家') && p === myName) return;
+                    // 🔥 修正：現在只有「預言家」不能點自己，狼人可以自刀了！
+                    if (myRole === '預言家' && p === myName) return;
                     if (myRole === '守衛' && p === lastGuardedByMe) return; 
                     
                     const btn = document.createElement('button'); 
