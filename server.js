@@ -41,6 +41,7 @@ io.on('connection', (socket) => {
         
         if (room) {
             const existingPlayer = room.players.find(p => p.name === playerName);
+            // 確認是否為原始建立者或之前紀錄的法官
             const isActuallyHost = (socket.id === room.host || (existingPlayer && existingPlayer.isHost));
             
             if (existingPlayer) { 
@@ -139,7 +140,7 @@ io.on('connection', (socket) => {
             msg = "💊 女巫使用解藥救人"; 
         } else if (data.type === 'poisoned') { 
             room.witchPotions.poison = false; 
-            msg = `🧪 女巫使用毒藥毒殺了：${data.target}`; 
+            msg = `🧪 女巫毒殺了：${data.target}`; 
         } else if (data.type === 'guarded') { 
             msg = `🛡️ 守衛守護了：${data.target}`; 
         }
