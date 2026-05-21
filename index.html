@@ -83,7 +83,7 @@
     let isHost = false, alive = true, lastGuardedByMe = "";
     let alivePlayers = [];
 
-    // 🔥 終極防斷線機制：網頁在背景打瞌睡醒來後，自動重新加入房間廣播頻道！
+    // 自動重連
     socket.on('connect', () => {
         if (currentRoom && myName) {
             socket.emit('joinRoom', { roomCode: currentRoom, playerName: myName });
@@ -100,6 +100,9 @@
         myName = document.getElementById('hName').value.trim();
         currentRoom = document.getElementById('rCode').value.trim();
         if (!myName || !currentRoom) return alert('暱稱與房號都必須填寫！');
+        
+        // 🔥 修復截圖中玩家加入後，房號顯示「--」的問題
+        document.getElementById('roomTitle').innerText = "房號: " + currentRoom; 
         socket.emit('joinRoom', { roomCode: currentRoom, playerName: myName });
     }
 
