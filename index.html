@@ -83,6 +83,13 @@
     let isHost = false, alive = true, lastGuardedByMe = "";
     let alivePlayers = [];
 
+    // 🔥 終極防斷線機制：網頁在背景打瞌睡醒來後，自動重新加入房間廣播頻道！
+    socket.on('connect', () => {
+        if (currentRoom && myName) {
+            socket.emit('joinRoom', { roomCode: currentRoom, playerName: myName });
+        }
+    });
+
     function createRoomBtn() {
         myName = document.getElementById('hName').value.trim();
         if (!myName) return alert('請先輸入暱稱！');
@@ -211,7 +218,6 @@
                 document.getElementById('actionMsg').innerText = `🔮 請執行【${myRole}】的行動`;
                 
                 alivePlayers.forEach(p => {
-                    // 🔥 修正：現在只有「預言家」不能點自己，狼人可以自刀了！
                     if (myRole === '預言家' && p === myName) return;
                     if (myRole === '守衛' && p === lastGuardedByMe) return; 
                     
