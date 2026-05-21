@@ -6,7 +6,6 @@ const io = require('socket.io')(http, { cors: { origin: "*" } });
 app.use(express.static(__dirname));
 const rooms = {};
 
-// 檢查勝負
 function checkWin(roomCode) {
     const room = rooms[roomCode];
     if (!room) return null;
@@ -29,7 +28,7 @@ io.on('connection', (socket) => {
             witchPotions: { save: true, poison: true }, 
             logs: [],
             guardedPlayer: null,
-            phase: 'day' // 🔥 新增：記憶房間目前的日夜狀態
+            phase: 'day'
         };
         socket.join(roomCode);
         socket.emit('roomCreated', roomCode);
@@ -48,13 +47,11 @@ io.on('connection', (socket) => {
                 existingPlayer.isHost = isActuallyHost; 
                 if (isActuallyHost) room.host = socket.id;
                 
-                // 玩家重連時，補發身分與「當前的日夜狀態」
                 if (existingPlayer.role !== '等待中') {
                     socket.emit('assignRole', { role: existingPlayer.role });
                     if (!existingPlayer.alive) {
                         socket.emit('youAreDead');
                     }
-                    // 🔥 關鍵修復：補發當前日夜，讓背景甦醒的手機也能跟上天黑
                     const aliveNames = room.players.filter(p => p.alive).map(p => p.name);
                     socket.emit('phaseChanged', { phase: room.phase, alivePlayers: aliveNames, potions: room.witchPotions });
                 }
@@ -75,7 +72,7 @@ io.on('connection', (socket) => {
             room.witchPotions = { save: true, poison: true }; 
             room.logs = ["🏮 遊戲開始"]; 
             room.guardedPlayer = null; 
-            room.phase = 'day'; // 重置為白天
+            room.phase = 'day';
             
             let players = room.players;
             let num = players.length;
@@ -99,7 +96,7 @@ io.on('connection', (socket) => {
     socket.on('nextPhase', (data) => {
         const room = rooms[data.roomCode];
         if (room) {
-            room.phase = data.phase; // 🔥 記錄切換後的日夜
+            room.phase = data.phase; 
             if (data.phase === 'night') room.guardedPlayer = null; 
             const aliveNames = room.players.filter(p => p.alive).map(p => p.name);
             io.to(data.roomCode).emit('phaseChanged', { phase: data.phase, alivePlayers: aliveNames, potions: room.witchPotions });
@@ -110,8 +107,10 @@ io.on('connection', (socket) => {
         const room = rooms[data.roomCode];
         if (room) {
             const msg = `🔪 狼人暗殺了：${data.target}`;
-            room.logs.push(msg);
-            io.to(room.host).emit('adminLog', msg); 
+            if (room.logs[room.logs.length - 1] !== msg) {
+                room.logs.push(msg);
+                io.to(room.host).emit('adminLog', msg); 
+            }
             io.to(data.roomCode).emit('updateWitchInfo', { target: data.target, potions: room.witchPotions });
         }
     });
@@ -142,7 +141,7 @@ io.on('connection', (socket) => {
             room.guardedPlayer = data.target; 
         }
         
-        if (msg) {
+        if (msg && room.logs[room.logs.length - 1] !== msg) {
             room.logs.push(msg);
             io.to(room.host).emit('adminLog', msg);
         }
@@ -157,12 +156,14 @@ io.on('connection', (socket) => {
                 if (targetPlayer) {
                     targetPlayer.alive = false;
                     const msg = `💥 砰！獵人開槍帶走了：${data.target}`;
-                    room.logs.push(msg);
-                    io.to(room.host).emit('adminLog', msg);
+                    if (room.logs[room.logs.length - 1] !== msg) {
+                        room.logs.push(msg);
+                        io.to(room.host).emit('adminLog', msg);
+                    }
                     io.to(targetPlayer.id).emit('youAreDead');
                     io.to(data.roomCode).emit('roomUpdated', room.players);
                     
-                    const winMessage = checkWin(data.roomCode);
+                    const winMessage = checkWin(roomCode);
                     if (winMessage) {
                         room.logs.push(`🏁 ${winMessage}`);
                         io.to(data.roomCode).emit('gameOver', winMessage);
@@ -170,8 +171,10 @@ io.on('connection', (socket) => {
                 }
             } else {
                 const msg = `🔫 獵人選擇不開槍 (或被毒死無法發動)`;
-                room.logs.push(msg);
-                io.to(room.host).emit('adminLog', msg);
+                if (room.logs[room.logs.length - 1] !== msg) {
+                    room.logs.push(msg);
+                    io.to(room.host).emit('adminLog', msg);
+                }
             }
         }
     });
@@ -196,7 +199,10 @@ io.on('connection', (socket) => {
                     io.to(targetPlayer.id).emit('hunterAction', aliveNames);
                 }
 
-                room.logs.push(msg);
+                if (room.logs[room.logs.length - 1] !== msg) {
+                    room.logs.push(msg);
+                }
+                
                 io.to(targetPlayer.id).emit('youAreDead');
                 io.to(data.roomCode).emit('roomUpdated', room.players);
                 
