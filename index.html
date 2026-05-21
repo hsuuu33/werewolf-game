@@ -15,7 +15,6 @@
         #adminLog { text-align: left; color: #ffb74d; font-size: 14px; margin-top: 15px; border-top: 1px solid #555; padding-top: 10px; max-height: 200px; overflow-y: auto; line-height: 1.5; }
         .status-dead { opacity: 0.4; pointer-events: none; }
         
-        /* 絕對置頂的彈出式技能面板 */
         #actionUI { 
             display: none; 
             position: fixed; 
@@ -82,8 +81,9 @@
     let myName = "", myRole = "", currentRoom = "";
     let isHost = false, alive = true, lastGuardedByMe = "";
     let alivePlayers = [];
+    // 🔥 核心修正：增加「今晚是否已行動」的狀態球，防止分頁切換重連時重複跳出選單
+    let hasActedThisNight = false; 
 
-    // 自動重連
     socket.on('connect', () => {
         if (currentRoom && myName) {
             socket.emit('joinRoom', { roomCode: currentRoom, playerName: myName });
@@ -101,7 +101,6 @@
         currentRoom = document.getElementById('rCode').value.trim();
         if (!myName || !currentRoom) return alert('暱稱與房號都必須填寫！');
         
-        // 🔥 修復截圖中玩家加入後，房號顯示「--」的問題
         document.getElementById('roomTitle').innerText = "房號: " + currentRoom; 
         socket.emit('joinRoom', { roomCode: currentRoom, playerName: myName });
     }
@@ -131,6 +130,8 @@
     socket.on('roomUpdated', players => {
         document.getElementById('setupArea').style.display = "none";
         document.getElementById('gameArea').style.display = "block";
+        if(currentRoom) document.getElementById('roomTitle').innerText = "房號: " + currentRoom; 
+
         document.getElementById('playerListText').innerText = players.map(p => (p.alive ? "👤 " : "💀 ") + p.name).join(', ');
         
         if (isHost) {
@@ -158,6 +159,7 @@
         myRole = data.role; 
         alive = true; 
         lastGuardedByMe = ""; 
+        hasActedThisNight = false; // 新局開始，重置行動記憶
         document.getElementById('roleDisplay').innerText = myRole; 
         document.getElementById('myRoleBox').classList.remove('status-dead');
         document.getElementById('aliveStatus').innerText = "狀態：存活";
@@ -187,9 +189,9 @@
             btn.innerText = "💥 開槍帶走：" + p;
             btn.style.background = "#cf6679";
             btn.onclick = () => {
+                actionBtns.innerHTML = "<h3 style='color:white;'>💥 行動已確認！</h3>"; 
                 socket.emit('hunterShoot', { roomCode: currentRoom, target: p });
-                actionUI.style.display = "none";
-                alert("💥 砰！你已開槍！");
+                setTimeout(() => { actionUI.style.display = "none"; }, 1500);
             };
             actionBtns.appendChild(btn);
         });
@@ -198,8 +200,9 @@
         passBtn.innerText = "不開槍 / 被毒無法開槍";
         passBtn.style.background = "#777";
         passBtn.onclick = () => {
+            actionBtns.innerHTML = "<h3 style='color:white;'>💥 行動已確認！</h3>";
             socket.emit('hunterShoot', { roomCode: currentRoom, target: null });
-            actionUI.style.display = "none";
+            setTimeout(() => { actionUI.style.display = "none"; }, 1500);
         };
         actionBtns.appendChild(passBtn);
     });
@@ -216,6 +219,12 @@
         if (data.phase === 'night') {
             if (!isHost) overlay.style.display = "flex"; 
             
+            // 🔥 關鍵修正：如果今晚已經點過技能了，直接強制關閉面板，不再重複彈出！
+            if (hasActedThisNight) {
+                actionUI.style.display = "none";
+                return;
+            }
+            
             if (alive && (myRole === '狼人' || myRole === '預言家' || myRole === '守衛')) {
                 actionUI.style.display = "block"; 
                 document.getElementById('actionMsg').innerText = `🔮 請執行【${myRole}】的行動`;
@@ -230,6 +239,9 @@
                     btn.style.color = "white";
                     
                     btn.onclick = () => {
+                        hasActedThisNight = true; // 🔥 標記：今晚我已經完成投票/行動了
+                        actionBtns.innerHTML = "<h3 style='color:white;'>✅ 行動已確認！請等待天亮...</h3>";
+
                         if (myRole === '預言家') {
                             socket.emit('checkRole', { roomCode: currentRoom, targetName: p });
                         } else { 
@@ -237,8 +249,8 @@
                             const actionType = (myRole === '守衛') ? 'guarded' : 'none';
                             socket.emit((myRole === '狼人' ? 'wolfVote' : 'specialAction'), { roomCode: currentRoom, target: p, type: actionType }); 
                         }
-                        actionUI.style.display = "none"; 
-                        alert("✅ 行動已確認！請等待天亮...");
+                        
+                        setTimeout(() => { actionUI.style.display = "none"; }, 1500);
                     };
                     actionBtns.appendChild(btn);
                 });
@@ -246,6 +258,7 @@
         } else { 
             overlay.style.display = "none"; 
             actionUI.style.display = "none"; 
+            hasActedThisNight = false; // 🔥 天亮了！自動解除並清空黑夜行動記憶，迎向新的一天
         }
     });
 
@@ -265,9 +278,9 @@
             btnSave.style.background = d.potions.save ? "#4caf50" : "#444";
             btnSave.onclick = () => { 
                 if (d.potions.save) { 
+                    actionBtns.innerHTML = "<h3 style='color:white;'>✅ 拯救成功！請等待天亮...</h3>";
                     socket.emit('specialAction', { roomCode: currentRoom, type: 'saved' }); 
-                    actionUI.style.display = "none"; 
-                    alert("✅ 拯救成功！請等待天亮...");
+                    setTimeout(() => { actionUI.style.display = "none"; }, 1500);
                 }
             };
             
@@ -282,9 +295,9 @@
                         btn.innerText = "毒殺：" + p;
                         btn.style.background = "#cf6679";
                         btn.onclick = () => { 
+                            actionBtns.innerHTML = "<h3 style='color:white;'>✅ 毒殺確認！請等待天亮...</h3>";
                             socket.emit('specialAction', { roomCode: currentRoom, type: 'poisoned', target: p }); 
-                            actionUI.style.display = "none"; 
-                            alert("✅ 毒殺確認！請等待天亮...");
+                            setTimeout(() => { actionUI.style.display = "none"; }, 1500);
                         }; 
                         actionBtns.appendChild(btn); 
                     });
@@ -295,8 +308,8 @@
             btnPass.innerText = "不行動"; 
             btnPass.style.background = "#777";
             btnPass.onclick = () => { 
-                actionUI.style.display = "none"; 
-                alert("✅ 已選擇不行動！請等待天亮...");
+                actionBtns.innerHTML = "<h3 style='color:white;'>✅ 已選擇不行動！請等待天亮...</h3>";
+                setTimeout(() => { actionUI.style.display = "none"; }, 1500);
             };
             
             actionBtns.appendChild(btnSave); 
