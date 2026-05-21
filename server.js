@@ -28,7 +28,8 @@ io.on('connection', (socket) => {
             players: [], 
             witchPotions: { save: true, poison: true }, 
             logs: [],
-            guardedPlayer: null 
+            guardedPlayer: null,
+            phase: 'day' // 🔥 新增：記憶房間目前的日夜狀態
         };
         socket.join(roomCode);
         socket.emit('roomCreated', roomCode);
@@ -47,12 +48,15 @@ io.on('connection', (socket) => {
                 existingPlayer.isHost = isActuallyHost; 
                 if (isActuallyHost) room.host = socket.id;
                 
-                // 🔥 終極防護：玩家重連時，補發身分與生死狀態，防止遊戲卡死
+                // 玩家重連時，補發身分與「當前的日夜狀態」
                 if (existingPlayer.role !== '等待中') {
                     socket.emit('assignRole', { role: existingPlayer.role });
                     if (!existingPlayer.alive) {
                         socket.emit('youAreDead');
                     }
+                    // 🔥 關鍵修復：補發當前日夜，讓背景甦醒的手機也能跟上天黑
+                    const aliveNames = room.players.filter(p => p.alive).map(p => p.name);
+                    socket.emit('phaseChanged', { phase: room.phase, alivePlayers: aliveNames, potions: room.witchPotions });
                 }
             } else { 
                 room.players.push({ id: socket.id, name: playerName, role: '等待中', alive: true, isHost: isActuallyHost }); 
@@ -71,6 +75,7 @@ io.on('connection', (socket) => {
             room.witchPotions = { save: true, poison: true }; 
             room.logs = ["🏮 遊戲開始"]; 
             room.guardedPlayer = null; 
+            room.phase = 'day'; // 重置為白天
             
             let players = room.players;
             let num = players.length;
@@ -94,6 +99,7 @@ io.on('connection', (socket) => {
     socket.on('nextPhase', (data) => {
         const room = rooms[data.roomCode];
         if (room) {
+            room.phase = data.phase; // 🔥 記錄切換後的日夜
             if (data.phase === 'night') room.guardedPlayer = null; 
             const aliveNames = room.players.filter(p => p.alive).map(p => p.name);
             io.to(data.roomCode).emit('phaseChanged', { phase: data.phase, alivePlayers: aliveNames, potions: room.witchPotions });
